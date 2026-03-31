@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IPL Scheduler</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- NAVBAR -->
+<nav class="navbar">
+  <span class="nav-logo">🏏 IPL Scheduler</span>
+  <div class="nav-links">
+    <a href="#setup">Setup</a>
+    <a href="#schedule">Schedule</a>
+    <a href="#playoffs">Playoffs</a>
+  </div>
+</nav>
+
+<!-- SETUP SECTION -->
+<section id="setup" class="section">
+  <h2>Setup Tournament</h2>
+
+  <div class="card">
+    <label class="label">Select Teams (min 4)</label>
+    <div id="team-grid" class="team-grid"></div>
+  </div>
+
+  <div class="card">
+    <label class="label">Starting Day</label>
+    <select id="day-select" class="input-field">
+      <option value="1">Monday</option>
+      <option value="2">Tuesday</option>
+      <option value="3">Wednesday</option>
+      <option value="4">Thursday</option>
+      <option value="5" selected>Friday</option>
+      <option value="6">Saturday</option>
+      <option value="7">Sunday</option>
+    </select>
+  </div>
+
+  <button class="btn-primary" onclick="handleGenerate()">
+    Generate Schedule ➜
+  </button>
+  <p id="setup-error" class="error-msg"></p>
+</section>
+
+<!-- SCHEDULE SECTION -->
+<section id="schedule" class="section hidden">
+  <div class="section-header">
+    <h2>League Schedule</h2>
+    <div class="header-actions">
+      <span id="match-count-badge" class="badge"></span>
+      <button class="btn-secondary" onclick="exportCSV(window._schedule)">⬇ Download CSV</button>
+    </div>
+  </div>
+
+  <div class="search-bar-wrap">
+    <input type="text" id="search-input" class="input-field" placeholder="Search team..." oninput="renderTable()">
+    <select id="day-filter" class="input-field" onchange="renderTable()">
+      <option value="">All Days</option>
+      <option value="Monday">Monday</option>
+      <option value="Tuesday">Tuesday</option>
+      <option value="Wednesday">Wednesday</option>
+      <option value="Thursday">Thursday</option>
+      <option value="Friday">Friday</option>
+      <option value="Saturday">Saturday</option>
+      <option value="Sunday">Sunday</option>
+    </select>
+  </div>
+
+  <div class="table-wrap">
+    <table id="schedule-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Day</th>
+          <th>Time</th>
+          <th>Home</th>
+          <th>vs</th>
+          <th>Away</th>
+          <th>Venue</th>
+        </tr>
+      </thead>
+      <tbody id="schedule-body"></tbody>
+    </table>
+  </div>
+
+  <button class="btn-primary" onclick="scrollToPlayoffs()">
+    Proceed to Playoffs ➜
+  </button>
+</section>
+
+<!-- PLAYOFFS SECTION -->
+<section id="playoffs" class="section hidden">
+  <h2>Playoffs</h2>
+
+  <div class="card">
+    <label class="label">Select Top 4 Teams (in order)</label>
+    <div id="playoff-selects" class="playoff-selects"></div>
+  </div>
+
+  <button class="btn-primary" onclick="renderBracket()">Generate Bracket ➜</button>
+
+  <div id="bracket-wrap" class="bracket-wrap hidden">
+    <h3>Playoff Bracket</h3>
+
+    <div class="bracket">
+      <!-- Q1 -->
+      <div class="bracket-col">
+        <div class="bracket-label">Qualifier 1</div>
+        <div class="match-card" id="q1-card"></div>
+        <select id="q1-winner" class="input-field" onchange="updateBracket()"></select>
+      </div>
+
+      <div class="bracket-col">
+        <div class="bracket-label">Eliminator</div>
+        <div class="match-card" id="elim-card"></div>
+        <select id="elim-winner" class="input-field" onchange="updateBracket()"></select>
+      </div>
+
+      <div class="bracket-col">
+        <div class="bracket-label">Qualifier 2</div>
+        <div class="match-card" id="q2-card"></div>
+        <select id="q2-winner" class="input-field" onchange="updateBracket()"></select>
+      </div>
+
+      <div class="bracket-col">
+        <div class="bracket-label">🏆 FINAL</div>
+        <div class="match-card final-card" id="final-card"></div>
+        <select id="final-winner" class="input-field" onchange="showChampion()"></select>
+      </div>
+    </div>
+
+    <div id="champion-banner" class="champion-banner hidden"></div>
+  </div>
+</section>
+
+<script src="scheduler.js"></script>
+<script>
+  // ===== RENDER TEAM GRID =====
+  function renderTeamGrid() {
+    const grid = document.getElementById("team-grid");
+    grid.innerHTML = "";
+    IPL_TEAMS.forEach(team => {
+      const card = document.createElement("div");
+      card.className = "team-card";
+      card.dataset.id = team.id;
+      card.innerHTML = `
+        <div class="team-badge" style="background:${team.color}">${team.short}</div>
+        <div class="team-name">${team.name}</div>
+        <div class="team-city">${team.city}</div>
+      `;
+      card.onclick = () => card.classList.toggle("selected");
+      grid.appendChild(card);
+    });
+  }
+
+  // ===== HANDLE GENERATE =====
+  function handleGenerate() {
+    const selected = [...document.querySelectorAll(".team-card.selected")].map(c => +c.dataset.id);
+    const err = document.getElementById("setup-error");
+    if (selected.length < 4) { err.textContent = "Please select at least 4 teams."; return; }
+    err.textContent = "";
+    const dayOne = +document.getElementById("day-select").value;
+    window._schedule = generateSchedule(selected, dayOne);
+    document.getElementById("match-count-badge").textContent = `${window._schedule.matches.length} Matches`;
+    renderTable();
+    document.getElementById("schedule").classList.remove("hidden");
+    document.getElementById("schedule").scrollIntoView({ behavior: "smooth" });
+    populatePlayoffSelects(window._schedule.teams);
+  }
+
+  // ===== RENDER TABLE =====
+  function renderTable() {
+    const { matches, days, times, venues, teams } = window._schedule;
+    const search = document.getElementById("search-input").value.toLowerCase();
+    const dayFilter = document.getElementById("day-filter").value;
+    const tbody = document.getElementById("schedule-body");
+    tbody.innerHTML = "";
+
+    matches.forEach((m, i) => {
+      const home = teams.find(t => t.id === m.home);
+      const away = teams.find(t => t.id === m.away);
+      const dayName = DAY_NAMES[days[i]];
+      if (search && !home.name.toLowerCase().includes(search) && !away.name.toLowerCase().includes(search)) return;
+      if (dayFilter && dayName !== dayFilter) return;
+
+      const tr = document.createElement("tr");
+      const isWeekend = days[i] === 6 || days[i] === 7;
+      if (isWeekend) tr.classList.add("weekend-row");
+      tr.innerHTML = `
+        <td>${i + 1}</td>
+        <td><span class="day-pill ${isWeekend ? 'weekend' : 'weekday'}">${dayName}</span></td>
+        <td>${times[i]}</td>
+        <td>
+          <span class="team-pill" style="background:${home.color}">${home.short}</span>
+          ${home.name}
+        </td>
+        <td class="vs-cell">vs</td>
+        <td>
+          <span class="team-pill" style="background:${away.color}">${away.short}</span>
+          ${away.name}
+        </td>
+        <td>${venues[i]}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  // ===== PLAYOFFS =====
+  function populatePlayoffSelects(teams) {
+    const wrap = document.getElementById("playoff-selects");
+    wrap.innerHTML = "";
+    ["1st Place","2nd Place","3rd Place","4th Place"].forEach((label, i) => {
+      const div = document.createElement("div");
+      div.className = "playoff-row";
+      div.innerHTML = `<span class="playoff-label">${label}</span>`;
+      const sel = document.createElement("select");
+      sel.id = `p${i+1}`;
+      sel.className = "input-field";
+      sel.innerHTML = `<option value="">-- Select Team --</option>` +
+        teams.map(t => `<option value="${t.id}">${t.name}</option>`).join("");
+      div.appendChild(sel);
+      wrap.appendChild(div);
+    });
+    document.getElementById("playoffs").classList.remove("hidden");
+  }
+
+  function getTeamById(id) {
+    return IPL_TEAMS.find(t => t.id === +id);
+  }
+
+  function makeOptions(teams) {
+    return `<option value="">-- Select Winner --</option>` +
+      teams.filter(Boolean).map(t => `<option value="${t.id}">${t.name}</option>`).join("");
+  }
+
+  function renderBracket() {
+    const ids = [1,2,3,4].map(i => +document.getElementById(`p${i}`).value);
+    if (ids.some(id => !id)) { alert("Please select all 4 teams."); return; }
+    window._playoff = { teams: ids.map(getTeamById) };
+    const [t1, t2, t3, t4] = window._playoff.teams;
+
+    document.getElementById("q1-card").innerHTML = matchCardHTML(t1, t2);
+    document.getElementById("elim-card").innerHTML = matchCardHTML(t3, t4);
+    document.getElementById("q2-card").innerHTML = `<div class="tbd">Winner decided after Q1 & Eliminator</div>`;
+    document.getElementById("final-card").innerHTML = `<div class="tbd">Winner decided after Q1 & Q2</div>`;
+
+    document.getElementById("q1-winner").innerHTML = makeOptions([t1, t2]);
+    document.getElementById("elim-winner").innerHTML = makeOptions([t3, t4]);
+    document.getElementById("q2-winner").innerHTML = makeOptions([]);
+    document.getElementById("final-winner").innerHTML = makeOptions([]);
+
+    document.getElementById("bracket-wrap").classList.remove("hidden");
+    document.getElementById("champion-banner").classList.add("hidden");
+  }
+
+  function matchCardHTML(t1, t2) {
+    if (!t1 || !t2) return `<div class="tbd">TBD</div>`;
+    return `
+      <div class="match-teams">
+        <span class="team-pill" style="background:${t1.color}">${t1.short}</span> ${t1.name}
+        <span class="versus">vs</span>
+        <span class="team-pill" style="background:${t2.color}">${t2.short}</span> ${t2.name}
+      </div>`;
+  }
+
+  function updateBracket() {
+    const q1WinnerId = +document.getElementById("q1-winner").value;
+    const elimWinnerId = +document.getElementById("elim-winner").value;
+    const [t1, t2, t3, t4] = window._playoff.teams;
+
+    const q1Loser = q1WinnerId === t1.id ? t2 : t1;
+    const q1Winner = getTeamById(q1WinnerId);
+    const elimWinner = getTeamById(elimWinnerId);
+
+    if (q1Winner && elimWinner) {
+      document.getElementById("q2-card").innerHTML = matchCardHTML(q1Loser, elimWinner);
+      document.getElementById("q2-winner").innerHTML = makeOptions([q1Loser, elimWinner]);
+    }
+
+    const q2WinnerId = +document.getElementById("q2-winner").value;
+    const q2Winner = getTeamById(q2WinnerId);
+    if (q1Winner && q2Winner) {
+      document.getElementById("final-card").innerHTML = matchCardHTML(q1Winner, q2Winner);
+      document.getElementById("final-winner").innerHTML = makeOptions([q1Winner, q2Winner]);
+    }
+  }
+
+  function showChampion() {
+    const id = +document.getElementById("final-winner").value;
+    if (!id) return;
+    const team = getTeamById(id);
+    const banner = document.getElementById("champion-banner");
+    banner.classList.remove("hidden");
+    if (team.short === "RCB") {
+      banner.innerHTML = `🎉 FINALLY!! <span style="color:${team.color}">${team.name}</span> are the IPL Champions! Kohli and Co. do it! 🏆`;
+    } else {
+      banner.innerHTML = `🏆 <span style="color:${team.color}">${team.name}</span> are the IPL Champions!`;
+    }
+  }
+
+  function scrollToPlayoffs() {
+    document.getElementById("playoffs").scrollIntoView({ behavior: "smooth" });
+  }
+
+  renderTeamGrid();
+</script>
+</body>
+</html>
